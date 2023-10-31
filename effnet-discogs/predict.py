@@ -15,7 +15,7 @@ import youtube_dl
 from cog import BasePredictor, Input, Path
 from essentia.standard import (
     MonoLoader,
-    TensorflowPredictEffnetDiscogs,
+    TensorflowPredictMAEST,
     TensorflowPredict2D,
 )
 
@@ -34,16 +34,16 @@ class Predictor(BasePredictor):
     def setup(self):
         """Load the model into memory and create the Essentia network for predictions"""
 
-        self.embedding_model_file = "/models/discogs-effnet-bs64-1.pb"
+        self.embedding_model_file = "/models/discogs-maest-30s-pw-1.pb"
         self.classification_model_file = "/models/genre_discogs400-discogs-effnet-1.pb"
         self.output = "activations"
         self.sample_rate = 16000
 
         self.loader = MonoLoader()
-        self.tensorflowPredictEffnetDiscogs = TensorflowPredictEffnetDiscogs(
+        self.tensorflowPredictEffnetDiscogs = TensorflowPredictMAEST(
             graphFilename=self.embedding_model_file,
-            output="PartitionedCall:1",
-            patchHopSize=128,  # remove overlap between patches for efficiency
+            output="StatefulPartitionedCall:7",
+            #patchHopSize=128,  # remove overlap between patches for efficiency
         )
         self.classification_model = TensorflowPredict2D(
             graphFilename=self.classification_model_file,
@@ -108,7 +108,7 @@ class Predictor(BasePredictor):
         result = {
             "label": list(
                 chain(
-                    *[
+                    *[  
                         [processed_labels[idx]] * activations.shape[0]
                         for idx in top_n_idx
                     ]
@@ -175,7 +175,7 @@ class Predictor(BasePredictor):
             # From https://gist.github.com/AgentOak/34d47c65b1d28829bb17c24c04a0096f
             "format": "251",
             "postprocessors": [
-                {
+                {   
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": ext,
                 }
