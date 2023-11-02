@@ -33,11 +33,8 @@ processed_labels = list(map(process_labels, labels))
 class Predictor(BasePredictor):
     def setup(self):
         """Load the model into memory and create the Essentia network for predictions"""
-        print("attempting to load maest")
         self.embedding_model_file = "/models/discogs-maest-30s-pw-1.pb"
-        print("loaded maest")
         self.classification_model_file = "/models/genre_discogs400-discogs-effnet-1.pb"
-        print("loaded discogs")
         self.output = "activations"
         self.sample_rate = 16000
 
@@ -52,6 +49,7 @@ class Predictor(BasePredictor):
             graphFilename=self.embedding_model_file,
             output="StatefulPartitionedCall:7"
         )
+        print("loaded MAEST")
 
     def predict(
         self,
