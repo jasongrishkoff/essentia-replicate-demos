@@ -16,7 +16,6 @@ from cog import BasePredictor, Input, Path
 from essentia.standard import (
     MonoLoader,
     TensorflowPredictMAEST,
-    TensorflowPredict2D,
 )
 
 from labels import labels
@@ -34,20 +33,13 @@ class Predictor(BasePredictor):
     def setup(self):
         """Load the model into memory and create the Essentia network for predictions"""
         self.embedding_model_file = "/models/discogs-maest-30s-pw-1.pb"
-        self.classification_model_file = "/models/genre_discogs400-discogs-effnet-1.pb"
         self.output = "activations"
         self.sample_rate = 16000
 
         self.loader = MonoLoader()
-        self.classification_model = TensorflowPredict2D(
-            graphFilename=self.classification_model_file,
-            input="serving_default_model_Placeholder",
-            output="PartitionedCall:0",
-        )
         print("attempting to load MAEST")
         self.tensorflowPredictMAEST = TensorflowPredictMAEST(
-            graphFilename=self.embedding_model_file,
-            output="StatefulPartitionedCall:7"
+            graphFilename=self.embedding_model_file, output="StatefulPartitionedCall:0"
         )
         print("loaded MAEST")
 
@@ -92,9 +84,10 @@ class Predictor(BasePredictor):
         waveform = self.loader()
 
         print("running the model...")
-        embeddings = self.tensorflowPredictMAEST(waveform)
-        activations = self.classification_model(embeddings)
-        activations_mean = np.mean(activations, axis=0)
+        activations = self.tensorflowPredictMAEST(waveform)
+        activations = np.squeeze(activations)
+        if len(activations.shape) == 2:
+            activations_mean = np.mean(activations, axis=0)
 
         if output_format == "JSON":
             out_path = Path(tempfile.mkdtemp()) / "out.json"
