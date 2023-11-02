@@ -33,22 +33,24 @@ processed_labels = list(map(process_labels, labels))
 class Predictor(BasePredictor):
     def setup(self):
         """Load the model into memory and create the Essentia network for predictions"""
-
+        print("attempting to load maest")
         self.embedding_model_file = "/models/discogs-maest-30s-pw-1.pb"
+        print("loaded maest")
         self.classification_model_file = "/models/genre_discogs400-discogs-effnet-1.pb"
+        print("loaded discogs")
         self.output = "activations"
         self.sample_rate = 16000
 
         self.loader = MonoLoader()
-        self.tensorflowPredictEffnetDiscogs = TensorflowPredictMAEST(
-            graphFilename=self.embedding_model_file,
-            output="StatefulPartitionedCall:7",
-            #patchHopSize=128,  # remove overlap between patches for efficiency
-        )
         self.classification_model = TensorflowPredict2D(
             graphFilename=self.classification_model_file,
             input="serving_default_model_Placeholder",
             output="PartitionedCall:0",
+        )
+        print("attempting to load MAEST")
+        self.tensorflowPredictMAEST = TensorflowPredictMAEST(
+            graphFilename=self.embedding_model_file,
+            output="StatefulPartitionedCall:7"
         )
 
     def predict(
@@ -92,7 +94,7 @@ class Predictor(BasePredictor):
         waveform = self.loader()
 
         print("running the model...")
-        embeddings = self.tensorflowPredictEffnetDiscogs(waveform)
+        embeddings = self.tensorflowPredictMAEST(waveform)
         activations = self.classification_model(embeddings)
         activations_mean = np.mean(activations, axis=0)
 
@@ -108,7 +110,7 @@ class Predictor(BasePredictor):
         result = {
             "label": list(
                 chain(
-                    *[  
+                    *[
                         [processed_labels[idx]] * activations.shape[0]
                         for idx in top_n_idx
                     ]
@@ -175,7 +177,7 @@ class Predictor(BasePredictor):
             # From https://gist.github.com/AgentOak/34d47c65b1d28829bb17c24c04a0096f
             "format": "251",
             "postprocessors": [
-                {   
+                {
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": ext,
                 }
