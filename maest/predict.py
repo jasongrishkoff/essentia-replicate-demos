@@ -3,6 +3,8 @@
 
 import json
 import tempfile
+import requests
+import random
 from itertools import chain
 from pathlib import Path
 from textwrap import wrap
@@ -11,7 +13,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas
 import seaborn as sns
-import youtube_dl
+#import youtube_dl
+from yt_dlp import YoutubeDL
 from cog import BasePredictor, Input, Path
 from essentia.standard import (
     MonoLoader,
@@ -25,14 +28,35 @@ def process_labels(label):
     genre, style = label.split("---")
     return f"{style}\n({genre})"
 
-
 processed_labels = list(map(process_labels, labels))
+
+def fetch_proxy():
+    url = 'https://proxy.webshare.io/api/v2/proxy/list/?mode=direct&page=1&page_size=250'
+    headers = {'Authorization': f'Token fd9e64adac30d6f46be5ad88b19fffbc42027418'}
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()  # Raises an HTTPError for bad responses
+        data = response.json()
+        proxies = data.get('results', [])
+
+        if not proxies:
+            raise ValueError("No proxies found")
+
+        random_proxy = random.choice(proxies)
+        return random_proxy
+
+    except requests.RequestException as e:
+        print(f"Request failed: {e}")
+        return None
 
 
 class Predictor(BasePredictor):
     def setup(self):
         """Load the model into memory and create the Essentia network for predictions"""
+        #self.embedding_model_file = "/models/discogs-maest-10s-pw-1.pb"
+        #self.embedding_model_file = "/models/discogs-maest-20s-pw-1.pb"
         self.embedding_model_file = "/models/discogs-maest-30s-pw-1.pb"
+        #self.embedding_model_file = "/models/discogs-maest-5s-pw-1.pb"
         self.output = "activations"
         self.sample_rate = 16000
 
@@ -88,8 +112,6 @@ class Predictor(BasePredictor):
         activations = np.squeeze(activations)
         if len(activations.shape) == 2:
             activations_mean = np.mean(activations, axis=0)
-        else:
-            activations_mean = activations
 
         if output_format == "JSON":
             out_path = Path(tempfile.mkdtemp()) / "out.json"
@@ -151,46 +173,36 @@ class Predictor(BasePredictor):
         return out_path
 
     def _download(self, url, ext="wav"):
-        """Download a YouTube URL in the specified format to a temporal directory"""
+        """Download a YouTube URL in the specified format to a temporary directory using a dynamically fetched proxy"""
+
+        proxy = fetch_proxy()
+        if not proxy:
+            print("Failed to fetch proxy. Exiting...")
+            return None, None
+
+        proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['proxy_address']}:{proxy['port']}"
 
         tmp_dir = Path(tempfile.mktemp())
         ydl_opts = {
-            # The download is quite slow, use the most compressed format that doesn't affect
-            # the sense of the prediction (too much):
-            #
-            # Code  Container  Audio Codec  Audio Bitrate     Channels    Still offered?
-            # 250   WebM       Opus (VBR)   ~70 Kbps          Stereo (2)  Yes
-            # 251   WebM       Opus         (VBR) <=160 Kbps  Stereo (2)  Yes
-            # 40    MP4        AAC (LC)     128 Kbps          Stereo (2)  Yes, YT Music
-            #
-            # Download speeds:
-            # 250 -> ~19s, 251 -> 30s, 40 -> ~35s
-            # but 250 changes the predictions too munch. Using 251 as a compromise.
-            #
-            # From https://gist.github.com/AgentOak/34d47c65b1d28829bb17c24c04a0096f
             "format": "251",
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": ext,
-                }
-            ],
-            # render audio @16kHz to prevent resampling latter on
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": ext,
+            }],
             "postprocessor_args": ["-ar", f"{self.sample_rate}"],
-            "outtmpl": str(tmp_dir / "audio.%(ext)s"),
-        }
-
-        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url)
+            "outtmpl": str(tmp_dir / f"audio.%(ext)s"),
+            "proxy": proxy_url,  # Set proxy here
+        } 
+    
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
 
             if "title" in info:
-                title = info["title"]
+                title = info['title'] 
             else:
-                title = ""  # is it possible that the title metadata is unavailable? Continue anyway
+                title = ""  # handle cases where the title might be unavailable
 
-        paths = [p for p in tmp_dir.glob(f"audio.{ext}")]
-        assert (
-            len(paths) == 1
-        ), "Something unexpected happened. Should be only one match!"
+        paths = list(tmp_dir.glob(f"audio.{ext}"))
+        assert len(paths) == 1, "Unexpected error: More than one file found!"
 
         return paths[0], title
